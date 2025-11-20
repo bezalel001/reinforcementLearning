@@ -352,3 +352,56 @@
 #   constant-step curve stays higher later in the run, illustrating that the environment is non-stationary
 #   (rewards drift), so recent data should be weighted more.
 # """
+# =====================================================================
+# - Candidates: test c = {0.5, 1.0, 1.5, 2.0}; c scales the optimism bonus c * sqrt(log t / N[a]). Higher c explores more aggressively.
+#   - Setup: for each candidate, build an experiment via experiment_factory, run the agent in RecsysEnvironment with 30 seeds and 2 000 steps
+#     (about an hour of simulated traffic), and also keep a random baseline for reference.
+#   - Evaluation: collect reward traces via run_multi_seeds, compute the mean reward per configuration, and store all curves in group_stats.
+#   - Visualization: call plot_reward_band(group_stats) to compare the tuned curves; this shows how each c affects early spikes and long-run
+#     averages.
+#   - Result: track the best mean reward and print something like “Best UCB config: UCB, c=1.0 (mean reward …)”. In the provided run, c ≈ 1.0 gave
+#     the most stable high reward—lower c under-explores, higher c spends too long on stale arms.
+
+#   So 2.1.3 systematically sweeps c, plots the learning behavior, and picks the value that maximizes average reward within the coarse grid.
+
+# =========================================================================================
+# Task 2.1.4 – Hyperparameter Optimization for the Gradient Bandit
+
+#   Objective: tune the learning rate α of the Gradient Bandit in the News Lab environment.
+
+#   Implementation (function your_gradient_bandit_optimization()):
+
+#   - Candidates: the grid [0.02, 0.05, 0.1, 0.2]. α controls how strongly the preferences H[a] respond to each
+#     reward; smaller α = slower, steadier updates, larger α = faster but noisier adaptation.
+#   - Experiment setup: same as earlier tasks—run each configuration for 2 000 steps with 30 random seeds and a
+#     user rate of 30 per minute. A random-agent baseline is included for comparison.
+#   - Execution: for every α, build an experiment_factory that creates GradientBandit(rng, alpha=α) and the
+#     RecsysEnvironment. Use run_multi_seeds to collect reward traces, store them in group_stats, and compute
+#     the mean reward.
+#   - Visualization: feed all traces (including the random baseline) to plot_reward_band to inspect how
+#     different α values affect convergence and variance.
+#   - Selection: track the highest mean reward across the candidates. In the notebook run, α ≈ 0.05 provided
+#     the best balance—small enough to keep variance down, large enough to adapt to changing article appeal.
+
+#   In short, Task 2.1.4 runs a grid search over the gradient-bandit learning rate, logs and plots each result,
+#   and reports the α that maximizes average reward so it can be used in later comparisons.
+
+"""Task 2.3 – Non-stationarity of the Environment
+
+  - Question: Is the News Lab environment non-stationary? In other words, do reward probabilities drift so
+    that recent observations should be weighted more heavily?
+  - Experiment (your_non_stationary_optimization): run two ε-greedy agents with the same ε (0.05) but
+    different update rules—one uses the standard sample-average update (alpha=None), the other uses a
+    constant step size (alpha=0.1). Because a constant step size discounts older data, it tends to perform
+    better in non-stationary settings.
+  - Result: the constant-step-size version achieves a slightly higher mean reward curve, indicating that
+    the environment’s click probabilities change over time (e.g., new articles appear, old ones decay). The
+    notebook’s markdown notes this observation explicitly.
+
+  Task 2.4 – Hyperparameter Optimization in Real Life
+
+  - Question: Without a simulator, how would you tune bandit hyperparameters?
+  - Answer (markdown): rely on historical interaction logs and off-policy evaluation techniques (e.g.,
+    Inverse Propensity Scoring or Doubly Robust estimators) to screen candidate settings offline, then
+    validate promising hyperparameters using carefully throttled online A/B tests on a small portion of live
+    traffic. This balances learning with user-experience safety when no simulator is available."""
