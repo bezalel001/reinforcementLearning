@@ -252,3 +252,22 @@ best = 3  # answer index for question 1.2.1 (UCB performed best)
 assert type(best) is int  # ensure the grader sees an integer
 less_prominent = True  # boolean answer for question 1.2.2 (spike less prominent with smaller c)
 assert type(less_prominent) is bool  # enforce type correctness for grading
+
+
+"""
+The N1 plot compares the average reward over time for four agents on the stationary test environment (random, ε-greedy with ε=0.1, UCB with
+  c=1.5, and a gradient bandit with α=0.1). Key takeaways:
+
+  - Random stays flat at the lowest reward since it never learns.
+  - ε-greedy and the gradient bandit steadily improve because they keep exploring but gradually favor the better arm; their curves rise above
+    random and then level off.
+  - UCB shows a sharp spike early on because the optimism bonus forces it to try every arm quickly, then it settles to the highest plateau once
+    it identifies the best arm.
+  Overall, UCB converges fastest and highest in this stationary setup, followed by ε-greedy and the gradient bandit, with random far behind.
+
+  ======================
+   In this context, “Random” refers to the baseline bandit agent that ignores all feedback: at every step it picks uniformly among the currently
+  available arms, never updating any estimates. It’s a useful lower bound—if another agent doesn’t beat Random, it’s failing to learn anything
+  meaningful.
+
+"""

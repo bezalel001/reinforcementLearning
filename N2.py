@@ -332,3 +332,23 @@ if RUN_OPTIMIZATION:
     your_non_stationary_optimization()
 
 # %% [markdown] cells 25-27 capture textual answers and are summarized in N2.md
+
+"""
+The N2 plots show several comparisons, but the core idea is this: after sweeping various hyperparameters,
+  each agent (ε-greedy, UCB, Gradient Bandit) is rerun with its best setting alongside the random baseline in
+  the News Lab environment. The curves are mean rewards over 2000 steps (≈1 hour of simulated traffic), and
+  the shaded bands show variability across 30 seeds.
+
+  - All tuned agents clearly outperform Random, confirming they leverage feedback.
+  - ε-greedy with a small ε and constant step size stabilizes quickly but moves more slowly than UCB early on
+    because it still spends a fixed fraction of time exploring.
+  - UCB with c≈1.0 exhibits a modest initial spike (from the confidence bonus) and then keeps the highest
+    long-term average reward, showing it balances exploration and exploitation effectively in this setting.
+  - Gradient Bandit with α≈0.05 rises more gradually; it reacts well to changing articles but remains
+    slightly below the tuned UCB curve, indicating it benefits from careful step-size tuning but still
+    carries more variance.
+
+  There’s also a secondary plot comparing ε-greedy with and without a constant step size, and there the
+  constant-step curve stays higher later in the run, illustrating that the environment is non-stationary
+  (rewards drift), so recent data should be weighted more.
+"""

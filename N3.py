@@ -98,3 +98,20 @@ plot_reward_band(group_stats, users_per_minute=30)  # visualize mean/min-max rew
 
 CONTEXTUAL_IS_BETTER = True  # final answer for the conceptual question (observed improvement with contexts)
 assert type(CONTEXTUAL_IS_BETTER) is bool  # guard so the grader receives a boolean value
+
+"""
+The N3 plot compares two curves:
+
+  - UCB, c=1.5: a single non-contextual UCB agent that treats every user the same.
+  - contextual-UCB, c=1.5: the same UCB base logic wrapped in ContextualClusteredBandit, which first clusters
+    users via k-means and runs one UCB instance per cluster.
+
+  Both curves show average reward across ~20 minutes (∼600 steps) with 200 seeds, shaded by min–max
+  envelopes. Early on they behave similarly because the contextual wrapper still needs to gather data for
+  each cluster. After a short warm-up, the contextual line climbs above the baseline and stays there: each
+  cluster-specific UCB specializes on the arms that work best for that user segment, so once the clustering
+  stabilizes it yields consistently higher rewards. The gap between the two lines—small at first, then
+  widening—illustrates the benefit of exploiting user context when the environment truly has heterogeneous
+  preferences.
+
+"""
