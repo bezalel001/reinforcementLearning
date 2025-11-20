@@ -1,6 +1,45 @@
-# Auto-generated reconstruction of N1_basic.ipynb
-# Each section mirrors the corresponding Jupyter cell, with markdown
-# preserved as comments that explain what the code below does.
+"""Multi-Armed Bandit Refresher
+
+  - Think of a casino with many slot machines (“arms”). Each arm pays out a different, unknown average
+    reward. A bandit agent repeatedly chooses an arm, observes the reward, and updates its beliefs. The
+    challenge is the exploration–exploitation trade‑off: try new arms to learn, or keep playing the best arm
+    found so far to earn more now. This setup is the simplest form of reinforcement learning because there
+    is only one “state”; the agent still learns sequentially from rewards, but there is no state transition
+    model.
+
+  What Each Python File Does
+
+  - N1.py (Basics):
+      - Implements three classic non-contextual bandits: ε-greedy, UCB, and Gradient Bandit.
+      - Shows how to set up experiments in a stationary environment, run multiple seeds, and interpret
+        learning curves.
+      - Answers the initial analysis questions (which agent wins, why UCB spikes, etc.).
+      - Purpose: teach core algorithms and guarantee they pass the provided tests.
+
+    ε-greedy randomly explores with probability ε and otherwise exploits the arm with the highest estimated mean reward. It keeps a running
+    average per arm and balances exploration/exploitation with a simple coin flip.
+  - UCB (Upper Confidence Bound) picks the arm with the highest optimistic estimate mean + c * sqrt(log t / pulls). Every arm is tried at least
+    once, then the bonus term encourages exploring uncertain arms. It’s deterministic and adapts confidence through counts.
+  - Gradient Bandit learns preferences instead of values. It maintains a softmax policy over arms and updates the preferences via a policy-
+    gradient rule using the reward baseline. Arms with higher advantage get higher probability, and learning is controlled by a step size α.
+
+  - N2.py (Hyperparameter Optimization):
+      - Reuses the same agents in a more realistic recommender environment where click probabilities drift
+        over time.
+      - Provides grid searches for ε-greedy (ε and step size), UCB (confidence c), and Gradient Bandit
+        (learning rate α).
+      - Compares the best configurations, checks for non-stationarity (constant step size helps), and
+        explains how tuning would work without a simulator.
+      - Purpose: demonstrate how to evaluate and tune bandit hyperparameters using averaged reward curves.
+  - N3.py (Contextual Bandits):
+      - Wraps a base bandit (UCB here) with a context-aware layer that clusters users via k-means and runs
+        one non-contextual bandit per cluster.
+      - Chooses the number of clusters with a silhouette score sweep.
+      - Compares plain UCB vs. contextual UCB to show the benefit of matching users to specialized agents.
+      - Purpose: extend the basic bandit idea to contextual settings where user features matter.
+
+  Together, the three scripts walk from foundational bandit algorithms, through practical tuning, to context-
+  sensitive variants—all in accessible, well-commented code."""
 
 # %% [markdown] cell 0
 # <div class="alert alert-block alert-warning">
@@ -8,337 +47,208 @@
 # </div>
 
 # %% [code] cell 1
-# The following code block replicates the notebook logic.
-import pytest
-import numpy as np
-import matplotlib.pyplot as plt
-from typing import Any, Dict, List
+import pytest  # import pytest so we can reuse the provided unit tests
+import numpy as np  # numpy provides vectorized math utilities and RNG helpers
+import matplotlib.pyplot as plt  # pyplot is used to visualize learning curves later on
+from typing import Any, Dict, List  # typing hints improve readability for dictionaries/lists
 
-from environments.base import State, Action
-from environments.normal import MABTestEnvironment
-from bandits import RandomAgent, EpsilonGreedyAgent, UCBAgent, GradientBandit
-from utils import experiment_factory, run_multi_seeds
-from utils import plot_reward_band
+from environments.base import State, Action  # base dataclasses describing environment states/actions
+from environments.normal import MABTestEnvironment  # stationary bandit environment for sanity checks
+from bandits import RandomAgent, EpsilonGreedyAgent, UCBAgent, GradientBandit  # agent classes implemented earlier
+from utils import experiment_factory, run_multi_seeds  # helper utilities to create/run experiments across seeds
+from utils import plot_reward_band  # plotting helper that shows mean reward with min-max envelopes
 
-# %% [markdown] cell 2
-# # **1. Multi-Armed Bandits — Basics (8 Points)**
-# 
-# In this part of the exercise, you will implement several **multi-armed bandit algorithms** introduced in the lecture.  
-# A shared agent interface is provided in `bandits.py`, and reproduced below for convenience:
-# 
-# ```python
-# class BanditAgent:
-#     
-#     def select(self, s: State) -> int:
-#         raise NotImplementedError
-# 
-#     def update(self, arm_id: int, reward: float, s: State) -> None:
-#         raise NotImplementedError
-# ````
-# 
-# Each agent must implement two core methods:
-# 
-# * **`select(self, s: State) -> int`** — chooses an action given the current environment state.
-#   Raises a `TypeError` if `s` is not a `State`.
-# * **`update(self, arm_id: int, reward: float, s: State) -> None`** — updates internal statistics based on the received reward.
-#   Raises a `TypeError` for mismatched types and a `ValueError` if `arm_id` is not a valid action.
-# 
-# ### Notes
-# 
-# * The variable `s` is an instance of `State`, which provides information about the current environment.
-# * `s.actions` is a list of `Action` objects; each action `a` has a unique identifier (`int`) accessible via `a.id`.
-#   For now, you only need the action IDs and can safely ignore other attributes.
-# * The **set of available actions is dynamic** — new actions may appear or disappear over time.
-#   Ensure that value estimates, preferences, and counters are initialized properly for any **new actions**.
-# 
-# `bandits.py` also contains a reference implementation of `RandomAgent`, which selects actions uniformly at random and keeps track of the available actions.
+# %% [markdown] cells 2-4 contain the textual exercise description
 
-# %% [markdown] cell 3
-# ## **Task 1.1. Python Implementation (6 Points)**
-# 
-# Implement the `select` and `update` methods below for the following agents:
-# 
-# - 1.1.1. `EpsilonGreedyAgent`
-# - 1.1.2. `UCBAgent`
-# - 1.1.3. `GradientBandit`
-# 
-# Each class includes short documentation of the predefined member variables to guide your implementation. Use `help(ClassName)` to show the available member variables or look into the implementation in `bandits.py`.
-# Each agent implementation is worth **2 points**.
-# The sections that require your input are marked with `# TODO: YOUR CODE HERE`.
-# 
-# ### **Important Notes**
-# 
-# - If an action is no longer available, **ignore it** when selecting or updating actions.  
-#   Only consider actions present in `s.actions`.
-# 
-# ### **Tests**
-# 
-# To verify your implementation during development, run the three test cells below.  
-# If your implementation is correct, they should complete without any errors.
+# %% [code] cell 6 – epsilon-greedy select
 
-# %% [markdown] cell 4
-# ### **1.1.1. EpsilonGreedyAgent**
-
-# %% [code] cell 5
-# The following code block replicates the notebook logic.
-# use `help` this to show all avalable attributes; uncomment the line below...
-# help(EpsilonGreedyAgent)
-
-# %% [code] cell 6
-# The following code block replicates the notebook logic.
+def eg_select(self, s: State) -> int:  # notebook-scope implementation attached to EpsilonGreedyAgent
+    """Select an arm via epsilon-greedy with deterministic tie-breaking."""  # document behavior for later reference
+    if not isinstance(s, State):  # enforce interface contract explicitly for clearer error messages
+        raise TypeError("s must be a State")  # provide informative error if wrong type is supplied
+    available_ids = [a.id for a in s.actions]  # extract numeric arm identifiers from the environment state
+    for a_id in available_ids:  # iterate over all arms exposed in the current state
+        if a_id not in self.Q:  # lazily initialize tracking structures when an arm appears for the first time
+            self.Q[a_id] = self.initial_value  # seed the value estimate with the configured optimistic prior
+            self.N[a_id] = 0  # initialize the selection count so updates behave correctly
+    if float(self.rng.rand()) < self.epsilon:  # sample a uniform random number and compare to epsilon threshold
+        return int(self.rng.choice(available_ids))  # explore uniformly over the currently available arms
+    best_q = max(self.Q[a] for a in available_ids)  # compute the greedy target value across available actions
+    for a_id in available_ids:  # iterate again to find the first arm attaining the maximum
+        if self.Q[a_id] == best_q:  # deterministic tie-breaking ensures reproducibility
+            return int(a_id)  # return the greedy arm ID as an integer
+    raise RuntimeError("No arm selected; available set may be empty")  # safeguard against impossible control flow
 
 
-def eg_select(self, s: State) -> int:
-    """Select an arm via E-greedy, initializing any new arms on the fly. Use argmax to select the greedy action; do not resolve tiebreaks via random selection."""
-    if not isinstance(s, State): raise TypeError("s must be a State")
-    available_ids = [a.id for a in s.actions]
-    for a_id in available_ids:
+# %% [code] cell 7 – epsilon-greedy update
+
+def eg_update(self, arm_id: int, reward: float, s: State) -> None:  # notebook implementation of the update rule
+    """Update the value estimate for the provided arm using sample-average or constant step size."""  # docstring for clarity
+    if not isinstance(arm_id, int):  # validate that the arm identifier supplied by the caller is an integer
+        raise TypeError("arm id must be int")  # raise informative TypeError otherwise
+    if not isinstance(reward, float):  # enforce float rewards as per the assignment tests
+        raise TypeError("reward id must be float")  # keep the error message aligned with the unit tests
+    if not isinstance(s, State):  # ensure the state object originates from the environment API
+        raise TypeError("s id must be State")  # again, mimic the test expectations exactly
+    available_ids = [a.id for a in s.actions]  # list of arms that were available when the reward was produced
+    if (  # guard against logical errors such as calling update before select
+        arm_id not in self.Q  # unseen arm globally
+        or any(a_id not in self.Q for a_id in available_ids)  # indicates select() was skipped for some actions
+        or arm_id not in available_ids  # reward for an arm that is not even in the current state
+    ):
+        raise ValueError("Unseen arm {arm_id}; call `select` before `update`.")  # message reused from tests
+    self.N[arm_id] += 1  # increment the counter for this arm so the sample-average denominator stays correct
+    if self.alpha is None:  # if no constant step size is specified we use the running average update
+        self.Q[arm_id] += (reward - self.Q[arm_id]) / self.N[arm_id]  # incremental mean formula
+    else:  # otherwise rely on an exponential moving average with fixed alpha
+        self.Q[arm_id] += self.alpha * (reward - self.Q[arm_id])  # constant step-size update reacts faster to drift
+    self.t += 1  # optional global timestep counter that some analyses rely on
+
+
+# %% [code] cell 8 – attach epsilon-greedy implementation and run tests
+EpsilonGreedyAgent.select = eg_select  # monkey patch the notebook-defined select method onto the class
+EpsilonGreedyAgent.update = eg_update  # monkey patch the update method likewise
+if __name__ == '__main__':  # only run the expensive pytest suite when the script is executed directly
+    print("Epsilon Greedy Bandits")  # friendly header for the console
+    passed = pytest.main(["--disable-warnings", "-q", "tests/test_bandits_egreedy.py"]) == 0  # run targeted tests
+    print("All tests passed!" if passed else "Some tests failed.")  # human-readable summary
+
+# %% [code] cell 11 – UCB select
+
+def ucb_select(self, s: State) -> int:  # notebook override for UCBAgent.select
+    """Select the arm with the largest UCB index, forcing unseen arms first."""  # describe approach
+    if not isinstance(s, State):  # enforce API type contract
+        raise TypeError("s must be a State")  # consistent error messaging
+    available_ids = [a.id for a in s.actions]  # fetch the list of candidate arms from the environment
+    for a_id in available_ids:  # lazily initialize new arms as in epsilon-greedy
         if a_id not in self.Q:
-            self.Q[a_id] = self.initial_value
-            self.N[a_id] = 0
-    if float(self.rng.rand()) < self.epsilon:
-        return int(self.rng.choice(available_ids))
-    best_q = max(self.Q[a] for a in available_ids)
-    for a_id in available_ids:
-        if self.Q[a_id] == best_q:
-            return int(a_id)
-
-# %% [code] cell 7
-# The following code block replicates the notebook logic.
-
-
-def eg_update(self, arm_id: int, reward: float, s: State) -> None:
-    """Update Q[arm_id] from observed reward"""
-    if not isinstance(arm_id, int): raise TypeError("arm id must be int")
-    if not isinstance(reward, float): raise TypeError("reward id must be float")
-    if not isinstance(s, State): raise TypeError("s id must be State")
-    if arm_id not in self.Q or any([a.id not in self.Q for a in s.actions]) or arm_id not in [a.id for a in s.actions]:
-        raise ValueError(
-            f"Unseen arm {arm_id}; call `select` before `update`."
-        )
-    self.N[arm_id] += 1
-    if self.alpha is None:
-        self.Q[arm_id] += (reward - self.Q[arm_id]) / self.N[arm_id]
-    else:
-        self.Q[arm_id] += self.alpha * (reward - self.Q[arm_id])
-    self.t += 1
-
-# %% [code] cell 8
-# The following code block replicates the notebook logic.
-EpsilonGreedyAgent.select = eg_select
-EpsilonGreedyAgent.update = eg_update
-if __name__ == '__main__':
-    print("Epsilon Greedy Bandits"); print("All tests passed!" if pytest.main(["--disable-warnings", "-q", "tests/test_bandits_egreedy.py"]) == 0 else "Some tests failed.")
-
-# %% [markdown] cell 9
-# ### **1.1.2. UCBAgent**
-
-# %% [code] cell 10
-# The following code block replicates the notebook logic.
-# use `help` this to show all avalable attributes
-# help(UCBAgent)
-
-# %% [code] cell 11
-# The following code block replicates the notebook logic.
+            self.Q[a_id] = self.initial_value  # set optimistic prior
+            self.N[a_id] = 0  # mark as unseen
+    for a_id in available_ids:  # forced exploration pass
+        if self.N[a_id] == 0:  # if the arm has never been tried
+            return int(a_id)  # force-select it before computing UCB indices
+    log_term = np.log(max(self.t, 1))  # compute log(t) safely (avoid log(0))
+    best_arm = None  # placeholder for the argmax result
+    best_idx = None  # placeholder for the highest UCB value seen so far
+    for a_id in available_ids:  # iterate through each available arm
+        bonus = self.c * np.sqrt(log_term / self.N[a_id])  # exploration bonus term
+        idx = self.Q[a_id] + bonus  # full UCB index = exploitation + exploration
+        if best_idx is None or idx > best_idx:  # keep the best-scoring arm (deterministic due to iteration order)
+            best_idx = idx  # update best score
+            best_arm = a_id  # update best arm
+    return int(best_arm)  # return the chosen arm ID
 
 
-def ucb_select(self, s: State) -> int:
-    """Select arm maximizing UCB index; ensure each new arm is tried once."""
-    if not isinstance(s, State): raise TypeError("s must be a State")
+# %% [code] cell 12 – UCB update
+
+def ucb_update(self, arm_id: int, reward: float, s: State) -> None:  # override for UCBAgent.update
+    """Update the sample-average value estimate and selection counts for the supplied arm."""
+    if not isinstance(arm_id, int):
+        raise TypeError("arm id must be int")
+    if not isinstance(reward, float):
+        raise TypeError("reward id must be float")
+    if not isinstance(s, State):
+        raise TypeError("s id must be State")
+    available_ids = [a.id for a in s.actions]
+    if (
+        arm_id not in self.Q
+        or any(a_id not in self.Q for a_id in available_ids)
+        or arm_id not in available_ids
+    ):
+        raise ValueError("Unseen arm {arm_id}; call `select` before `update`.")
+    self.t += 1  # increment global timestep so future log(t) calls see the updated count
+    self.N[arm_id] += 1  # bump the selection count for this arm
+    self.Q[arm_id] += (reward - self.Q[arm_id]) / self.N[arm_id]  # incremental mean update
+
+
+# %% [code] cell 13 – attach UCB implementation and run tests
+UCBAgent.select = ucb_select  # patch select method
+UCBAgent.update = ucb_update  # patch update method
+if __name__ == '__main__':  # only run tests on direct execution
+    print("UCB")
+    passed = pytest.main(["--disable-warnings", "-q", "tests/test_bandits_ucb.py"]) == 0
+    print("All tests passed!" if passed else "Some tests failed.")
+
+# %% [code] cell 16 – gradient bandit select
+
+def gb_select(self, s: State) -> int:  # gradient bandit selection logic
+    """Sample an arm from the softmax distribution over preference scores."""
+    if not isinstance(s, State):
+        raise TypeError("s must be a State")
     available_ids = [a.id for a in s.actions]
     for a_id in available_ids:
-        if a_id not in self.Q:
-            self.Q[a_id] = self.initial_value
-            self.N[a_id] = 0
-    for a_id in available_ids:
-        if self.N[a_id] == 0:
-            return int(a_id)
-    log_term = np.log(max(self.t, 1))
-    best_arm = None
-    best_idx = None
-    for a_id in available_ids:
-        bonus = self.c * np.sqrt(log_term / self.N[a_id])
-        idx = self.Q[a_id] + bonus
-        if best_idx is None or idx > best_idx:
-            best_idx = idx
-            best_arm = a_id
-    return int(best_arm)
-
-# %% [code] cell 12
-# The following code block replicates the notebook logic.
-
-
-def ucb_update(self, arm_id: int, reward: float, s: State) -> None:
-    """Increment time, update counts, and apply sample-average value update."""
-    if not isinstance(arm_id, int): raise TypeError("arm id must be int")
-    if not isinstance(reward, float): raise TypeError("reward id must be float")
-    if not isinstance(s, State): raise TypeError("s id must be State")
-    if arm_id not in self.Q or any([a.id not in self.Q for a in s.actions]) or arm_id not in [a.id for a in s.actions]:
-        raise ValueError(
-            f"Unseen arm {arm_id}; call `select` before `update`."
-        )
-    self.t += 1
-    self.N[arm_id] += 1
-    self.Q[arm_id] += (reward - self.Q[arm_id]) / self.N[arm_id]
-
-# %% [code] cell 13
-# The following code block replicates the notebook logic.
-UCBAgent.select = ucb_select
-UCBAgent.update = ucb_update
-if __name__ == '__main__':
-    print("UCB"); print("All tests passed!" if pytest.main(["--disable-warnings", "-q", "tests/test_bandits_ucb.py"]) == 0 else "Some tests failed.")
-
-# %% [markdown] cell 14
-# ### **1.1.3. GradientBandit**
-
-# %% [code] cell 15
-# The following code block replicates the notebook logic.
-# use `help` this to show all avalable attributes
-# help(GradientBandit)
-
-# %% [code] cell 16
-# The following code block replicates the notebook logic.
-
-
-def gb_select(self, s: State) -> int:
-    """Sample an arm according to the softmax over preferences H[a]."""
-    if not isinstance(s, State): raise TypeError("s must be a State")
-    available_ids = [a.id for a in s.actions]
-    for a_id in available_ids:
-        if a_id not in self.H:
+        if a_id not in self.H:  # lazily initialize new arms with zero preference
             self.H[a_id] = 0.0
-    probs = self._softmax(available_ids)
-    p_vec = [probs[a_id] for a_id in available_ids]
-    return int(self.rng.choice(available_ids, p=p_vec))
-
-# %% [code] cell 17
-# The following code block replicates the notebook logic.
+    probs = self._softmax(available_ids)  # compute softmax probabilities only over available arms
+    p_vec = [probs[a_id] for a_id in available_ids]  # convert dict to probability vector matching IDs order
+    return int(self.rng.choice(available_ids, p=p_vec))  # sample from the categorical distribution
 
 
-def gb_update(self, arm_id: int, reward: float, s: State) -> None:
-    """Apply the preference gradient update using the current set of available arms."""
-    if not isinstance(arm_id, int): raise TypeError("arm id must be int")
-    if not isinstance(reward, float): raise TypeError("reward id must be float")
-    if not isinstance(s, State): raise TypeError("s id must be State")
-    if arm_id not in self.H or any([a.id not in self.H for a in s.actions]) or arm_id not in [a.id for a in s.actions]:
-        raise ValueError(
-            f"Unseen arm {arm_id}; call `select` before `update`."
-        )
+# %% [code] cell 17 – gradient bandit update
+
+def gb_update(self, arm_id: int, reward: float, s: State) -> None:  # notebook implementation of the gradient update
+    """Apply the policy-gradient preference update using a running reward baseline."""
+    if not isinstance(arm_id, int):
+        raise TypeError("arm id must be int")
+    if not isinstance(reward, float):
+        raise TypeError("reward id must be float")
+    if not isinstance(s, State):
+        raise TypeError("s id must be State")
     available_ids = [a.id for a in s.actions]
-    probs = self._softmax(available_ids)
-    baseline = self.avg_reward
-    for a_id in available_ids:
-        indicator = 1.0 if a_id == arm_id else 0.0
-        self.H[a_id] += self.alpha * (reward - baseline) * (indicator - probs[a_id])
-    self.t += 1
-    self.avg_reward += (reward - self.avg_reward) / self.t
+    if (
+        arm_id not in self.H
+        or any(a_id not in self.H for a_id in available_ids)
+        or arm_id not in available_ids
+    ):
+        raise ValueError("Unseen arm {arm_id}; call `select` before `update`.")
+    probs = self._softmax(available_ids)  # recompute current action probabilities
+    baseline = self.avg_reward  # use running average reward as baseline for variance reduction
+    for a_id in available_ids:  # update only the arms present in this state
+        indicator = 1.0 if a_id == arm_id else 0.0  # one-hot indicator for the chosen arm
+        self.H[a_id] += self.alpha * (reward - baseline) * (indicator - probs[a_id])  # preference gradient step
+    self.t += 1  # increment counter for averaging
+    self.avg_reward += (reward - self.avg_reward) / self.t  # incremental mean update for the baseline
 
-# %% [code] cell 18
-# The following code block replicates the notebook logic.
+
+# %% [code] cell 18 – attach gradient bandit implementation and run tests
 GradientBandit.select = gb_select
 GradientBandit.update = gb_update
 if __name__ == '__main__':
-    print("Gradient Bandits"); print("All tests passed!" if pytest.main(["--disable-warnings", "-q", "tests/test_bandits_gb.py"]) == 0 else "Some tests failed.")
+    print("Gradient Bandits")
+    passed = pytest.main(["--disable-warnings", "-q", "tests/test_bandits_gb.py"]) == 0
+    print("All tests passed!" if passed else "Some tests failed.")
 
-# %% [markdown] cell 19
-# ### **Visual Sanity Check**
-# 
-# Once all tests pass successfully, proceed to run the cell below to perform a visual sanity check of the algorithms.
-
-# %% [code] cell 20
-# The following code block replicates the notebook logic.
+# %% [code] cell 20 – visual sanity check experiment
 if __name__ == '__main__':
-    # -----------------------------------------
-    # reduce, if you can't afford the compute
-    # -----------------------------------------
-    SEEDS = np.arange(100)
-    N_STEPS = 500
-
-    # -----------------------------------------
-    # initialize experiments
-    # -----------------------------------------
-    groups = {}
-
-    groups["random"] = experiment_factory(
+    SEEDS = np.arange(100)  # number of random seeds to average over
+    N_STEPS = 500  # number of steps per experiment
+    groups = {}  # container for experiment builders per agent
+    groups["random"] = experiment_factory(  # random baseline configuration
         lambda rng: RandomAgent(rng=rng),
         lambda rng: MABTestEnvironment(rng=rng)
     )
-
-    epsilon=0.1
+    epsilon = 0.1  # exploration rate for epsilon-greedy in the sanity check
     groups[f"epsilon-greedy, e={epsilon}"] = experiment_factory(
         lambda rng: EpsilonGreedyAgent(rng=rng, epsilon=epsilon),
         lambda rng: MABTestEnvironment(rng=rng)
     )
-
-    c=1.5
+    c = 1.5  # UCB confidence parameter for visualization
     groups[f"UCB, c={c}"] = experiment_factory(
         lambda rng: UCBAgent(c=c),
         lambda rng: MABTestEnvironment(rng=rng)
     )
-
-    alpha=0.1
+    alpha = 0.1  # gradient bandit learning rate for visualization
     groups[f"GB, alpha={alpha}"] = experiment_factory(
         lambda rng: GradientBandit(rng, alpha=alpha),
         lambda rng: MABTestEnvironment(rng=rng)
     )
+    group_stats: Dict[str, Dict[str, Any]] = {}  # dictionary storing rolled-out reward traces
+    for name, builder in groups.items():  # iterate through each experiment setup
+        group_stats[name] = run_multi_seeds(builder, SEEDS, n_steps=N_STEPS)  # run and store the stats
+    plot_reward_band(group_stats)  # visualize mean/min-max reward curves across time
 
-    # -----------------------------------------
-    # run experiments
-    # -----------------------------------------
-    group_stats: Dict[str, Dict[str, Any]] = {}
-    for name, builder in groups.items():
-        group_stats[name] = run_multi_seeds(builder, SEEDS, n_steps=N_STEPS)
-
-    # -----------------------------------------
-    # Plot: mean line + min–max band
-    # -----------------------------------------
-    plot_reward_band(group_stats)
-
-# %% [markdown] cell 21
-# ## **Task 1.2. Interpretation**
-# 
-# **Question 1.2.1. (1 point):**  
-# Each epoch ends after 500 steps. Based on the results, which of the four agents performs best on average?
-# 
-# *Note:* Repeat the experiment with at least **50 different random seeds** to observe consistent trends.
-# 
-# Choose one:
-# 
-# 1. `GB(a=0.1)` and `UCB(c=1.5)` perform equally well  
-# 2. `GB(a=0.1)` performs best  
-# 3. `UCB(c=1.5)` performs best
-# 
-# Store the index of your answer in the cell below, and briefly justify your choice in **one short sentence**.
-
-# %% [code] cell 22
-# The following code block replicates the notebook logic.
-
-
-best = 3
-
-# %% [code] cell 23
-# The following code block replicates the notebook logic.
-assert type(best) is int
-
-# %% [markdown] cell 24
-# UCB(c=1.5) performs best on average across the repeated runs.
-
-# %% [markdown] cell 25
-# **Question 1.2.2. (1 point):** 
-# Notice the initial reward spike of UCB followed by a drop. Explain in one or two sentences **why this happens**. Give a short textual answer below.
-# 
-# Would the spike become **more or less prominent** if you decreased `c` to 1? Store your answer in the variable below.
-
-# %% [markdown] cell 26
-# The early UCB spike comes from the optimistic exploration bonus; once estimates shrink the bonus, the average reward settles. Lowering c to 1 reduces that bonus, so the spike would be less pronounced.
-
-# %% [code] cell 27
-# The following code block replicates the notebook logic.
-
-
-less_prominent = True
-
-# %% [code] cell 28
-# The following code block replicates the notebook logic.
-assert type(less_prominent) is bool
-
+# %% [code] cell 22 – question responses stored as simple variables
+best = 3  # answer index for question 1.2.1 (UCB performed best)
+assert type(best) is int  # ensure the grader sees an integer
+less_prominent = True  # boolean answer for question 1.2.2 (spike less prominent with smaller c)
+assert type(less_prominent) is bool  # enforce type correctness for grading

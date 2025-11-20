@@ -1,6 +1,4 @@
-# Auto-generated reconstruction of N3_contextual.ipynb
-# Each section mirrors the corresponding Jupyter cell, with markdown
-# preserved as comments that explain what the code below does.
+"""Detailed, line-by-line commented reconstruction of N3_contextual.ipynb."""
 
 # %% [markdown] cell 0
 # <div class="alert alert-block alert-warning">
@@ -8,214 +6,95 @@
 # </div>
 
 # %% [code] cell 1
-# The following code block replicates the notebook logic.
-import pytest
+import pytest  # needed to rerun the dedicated contextual bandit tests
+import numpy as np  # provides RNG/state handling for experiments
+import matplotlib.pyplot as plt  # used to plot silhouette scores and reward curves
 
-import numpy as np
-import matplotlib.pyplot as plt
+from bandits import UCBAgent, ContextualClusteredBandit  # base UCB agent and contextual wrapper under test
+from environments.base import State, Action  # state/action dataclasses referenced in helper code
+from environments.recsys import RecsysEnvironment  # contextual news environment for experiments
 
-from bandits import UCBAgent, ContextualClusteredBandit
-from environments.base import State, Action
-from environments.recsys import RecsysEnvironment
+from utils import experiment_factory, run_multi_seeds  # helpers to instantiate/run multi-seed experiments
+from utils import plot_reward_band  # helper visualization function
 
-from utils import experiment_factory, run_multi_seeds
-from utils import plot_reward_band
+from typing import Any, Dict, List  # typing hints used in the experiment code
 
-from typing import Any, Dict, List
+# %% [code] cell 2 – import the tested UCB implementations from notebook 1
+from ipynb.fs.full.N1_basic import ucb_select, ucb_update  # reuse the validated N1 logic for UCB
 
-# %% [code] cell 2
-# The following code block replicates the notebook logic.
-# import functions from previous notebook
-from ipynb.fs.full.N1_basic import ucb_select, ucb_update
+UCBAgent.select = ucb_select  # attach imported selection rule to the UCBAgent class
+UCBAgent.update = ucb_update  # attach the update rule as well
 
-# workaround if the ipynb import does not work for you:
-#!jupyter nbconvert --to python N1_basic.ipynb
-#from N1_basic import ucb_select, ucb_update
+# %% [code] cell 5 – notebook implementation of ContextualClusteredBandit.select
 
-UCBAgent.select = ucb_select
-UCBAgent.update = ucb_update
-
-# %% [markdown] cell 3
-# # **3. Contextual Bandits (4 Points)**
-# 
-# In this final part of the assignment, we will implement a simple **contextual bandit** that operates by running *N* independent bandits in parallel and selecting the one most suitable for the current **context** (i.e., user).  
-# 
-# To achieve this, we cluster user contexts (collected beforehand) into *N* distinct groups **a priori**.  
-# Each cluster represents a **state**, and at runtime, we determine a user’s cluster membership and select the corresponding agent.  
-# This allows us to leverage the intuition that **similar users exhibit similar preferences**.
-# 
-# Your task is to complete the wrapper class **`ContextualClusteredBandit`**, which encapsulates any of the previously implemented bandit algorithms.
-# 
-# 
-# ## **Task 3.1. Implement the Contextual Bandit Wrapper (2 Points)**
-# 
-# The `ContextualClusteredBandit` class in `bandits.py` wraps around a base bandit algorithm and:
-# 
-# 1. Samples user contexts from the environment and clusters them using **K-Means**.  
-# 2. Creates **one independent non-contextual bandit agent per cluster** via `base_agent_factory`.
-# 
-# Your goal is to implement the `select` and `update` methods in the cells belowe so that they correctly **route calls** to the agent associated with the user’s current cluster. The sections that require your input are marked with `# TODO: YOUR CODE HERE`.
-# 
-# - Use `_fast_predict(s.context)` to determine the user’s cluster membership.  
-#   This function returns the **index of the nearest cluster center** to the 1D context vector `x` using precomputed centers:
-# 
-#   $$
-#   \arg\min_i \|x - C_i\|^2
-#   $$
-# 
-# 
-# ### **Tests**
-# 
-# To verify your implementation during development, run the test cell below.  
-# If your implementation is correct, all tests should pass without errors.
-
-# %% [code] cell 4
-# The following code block replicates the notebook logic.
-# use `help` this to show all avalable attributes; uncomment the line below...
-# help(ContextualClusteredBandit)
-
-# %% [code] cell 5
-# The following code block replicates the notebook logic.
-
-
-def select(self, s: State) -> int:
-    """
-    Select an arm for the given user. Use _fast_predict and s.context to find the user's cluster.
-    """
-    if s.context is None:
+def select(self, s: State) -> int:  # override for ContextualClusteredBandit.select
+    """Assign the user to a cluster and delegate to the respective base agent."""  # summary of approach
+    if s.context is None:  # contextual bandit needs user features to route to a cluster
         raise ValueError("User must be provided to select().")
-    cluster = self._fast_predict(s.context)
-    self._last_cluster = cluster
-    return int(self.agents[cluster].select(s))
-
-# %% [code] cell 6
-# The following code block replicates the notebook logic.
+    cluster = self._fast_predict(s.context)  # map the context vector to the nearest k-means center
+    self._last_cluster = cluster  # remember the cluster so update() can fall back if needed
+    return int(self.agents[cluster].select(s))  # forward the selection call to the cluster-specific agent
 
 
-def update(self, arm_id: int, reward: float, s: State) -> None:
-    """
-    Update the agent that handled the selection for the given user.
-    """
-    if s.context is None:
+# %% [code] cell 6 – notebook implementation of ContextualClusteredBandit.update
+
+def update(self, arm_id: int, reward: float, s: State) -> None:  # override for ContextualClusteredBandit.update
+    """Route the reward signal to the same cluster-specific agent used during select()."""
+    if s.context is None:  # contextual data required to recompute routing
         raise ValueError("User must be provided to select().")
-    cluster = self._fast_predict(s.context)
-    self._last_cluster = cluster
-    self.agents[cluster].update(arm_id, reward, s)
+    cluster = self._fast_predict(s.context)  # identify which sub-agent handled this user
+    self._last_cluster = cluster  # update cached cluster assignment (for consistency across calls)
+    self.agents[cluster].update(arm_id, reward, s)  # delegate update to the matching non-contextual agent
 
-# %% [code] cell 7
-# The following code block replicates the notebook logic.
-ContextualClusteredBandit.select = select
+
+ContextualClusteredBandit.select = select  # monkey patch notebook implementation onto the class
 ContextualClusteredBandit.update = update
-print("Clustered Contextual Bandits"); print("All tests passed!" if pytest.main(["--disable-warnings", "-q", "tests/test_contextual.py"]) == 0 else "Some tests failed.")
+print("Clustered Contextual Bandits")  # header for the console
+result = pytest.main(["--disable-warnings", "-q", "tests/test_contextual.py"])  # run contextual-specific tests
+print("All tests passed!" if result == 0 else "Some tests failed.")  # summarize outcome
 
-# %% [markdown] cell 8
-# ## **Task 3.2: Find an Appropriate Number of States (1 Point)**
-# 
-# Before running the contextual agent, we need to determine a suitable number of **user clusters** (or “states”) for the contextual bandit model.
-# 
-# A partial implementation is provided below.  
-# Your task is to:
-# 
-# - Define a suitable range for the number of clusters (`K_RANGE`).  
-# - Use scikit-learn’s **K-Means** implementation to cluster the user contexts.  
-# - Evaluate each clustering configuration using an appropriate metric (e.g., **Silhouette Score**).  
-# - Store the computed scores in the list `cluster_scores` for visualization.
-# 
-# The section that requires your input is marked with `# TODO: YOUR CODE HERE`.
-# 
-# Then store the value of `K` with the highest score in the variable `N_CLUSTERS` below.
+# %% [code] cell 9 – determine number of clusters via silhouette score
+from sklearn.cluster import KMeans  # clustering algorithm used to partition contexts
+from sklearn.metrics import silhouette_score  # evaluation metric for the cluster quality
 
-# %% [code] cell 9
-# The following code block replicates the notebook logic.
-
-# you might want to use these here :)
-from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
-
-N_USERS, RNG = 10_000, np.random.RandomState(19241)
-env = RecsysEnvironment(RNG)
-X, X_test = env.sample_contexts(samples=N_USERS), env.sample_contexts(samples=N_USERS)
-
-# try a small range of cluster counts
-K_RANGE = list(range(2, 11))
-cluster_scores = []
-
+N_USERS, RNG = 10_000, np.random.RandomState(19241)  # number of sampled contexts and RNG seed for reproducibility
+env = RecsysEnvironment(RNG)  # instantiate the recsys environment once for sampling
+X = env.sample_contexts(samples=N_USERS)  # dataset used to fit KMeans
+X_test = env.sample_contexts(samples=N_USERS)  # unused but kept for parity with the notebook (could be for validation)
+K_RANGE = list(range(2, 11))  # evaluate cluster counts from 2 through 10
+cluster_scores: List[float] = []  # container for silhouette scores so we can plot them later
 for k in K_RANGE:
-    kmeans = KMeans(n_clusters=k, n_init=10, random_state=RNG.randint(1e6))
-    labels = kmeans.fit_predict(X)
-    score = silhouette_score(X, labels)
-    cluster_scores.append(score)
+    kmeans = KMeans(n_clusters=k, n_init=10, random_state=RNG.randint(1e6))  # fit KMeans with multiple random restarts
+    labels = kmeans.fit_predict(X)  # obtain cluster assignments for each sampled context
+    score = silhouette_score(X, labels)  # compute how well separated/compact the clusters are
+    cluster_scores.append(score)  # store the metric for visualization/argmax
+plt.plot(K_RANGE, cluster_scores)  # visualize silhouette score vs. cluster count
+plt.xlabel("#clusters")  # label x-axis for clarity
+plt.ylabel("Silhouette Score")  # label y-axis
+plt.title("Silhouette per cluster count")  # provide descriptive title
+plt.show()  # display the figure inline when running interactively
+N_CLUSTERS = int(K_RANGE[int(np.argmax(cluster_scores))])  # select the k with the highest silhouette score
+assert type(N_CLUSTERS) is int  # ensure compatibility with downstream code/autograder expectations
 
-# --- plot ---
-plt.plot(K_RANGE, cluster_scores)
-plt.xlabel("#clusters")
-plt.ylabel("Silhouette Score")
-plt.title("Silhouette per cluster count")
-plt.show()
-
-# %% [code] cell 10
-# The following code block replicates the notebook logic.
-
-
-# pick K with best silhouette score
-N_CLUSTERS = int(K_RANGE[int(np.argmax(cluster_scores))])
-
-# %% [code] cell 11
-# The following code block replicates the notebook logic.
-assert type(N_CLUSTERS) is int
-
-# %% [markdown] cell 12
-# ### **Task 3.3: Compare UCB and Contextual UCB**
-# 
-# Now, conduct a small experiment comparing the performance of **UCB** in both **contextual** and **non-contextual** modes. Can you observe any benefits when using the contextual bandit setup? You can modify the provided code as needed to adjust parameters, random seeds, or visualization styles.
-
-# %% [code] cell 13
-# The following code block replicates the notebook logic.
-# -----------------------------------------
-# reduce, if you can't afford the compute
-# -----------------------------------------
-SEEDS = np.arange(200)
-N_STEPS = int(30*60*0.33) # run simulation of arpund 20 minutes
-
-# -----------------------------------------
-# initialize experiments
-# -----------------------------------------
-groups = {}
-
-c=1.5
-groups[f"UCB, c={c}"] = experiment_factory(
+# %% [code] cell 13 – compare contextual vs non-contextual UCB
+SEEDS = np.arange(200)  # large number of seeds to smooth the comparison
+N_STEPS = int(30 * 60 * 0.33)  # simulate roughly 20 minutes of user traffic (~600 steps)
+groups: Dict[str, Any] = {}  # dictionary storing experiment factories keyed by legend label
+c = 1.5  # confidence parameter shared between contextual and non-contextual UCB
+groups[f"UCB, c={c}"] = experiment_factory(  # plain UCB baseline without context clustering
     lambda rng: UCBAgent(c=c),
     lambda rng: RecsysEnvironment(rng=rng)
 )
-
-groups[f"contextual-UCB, c={c}"] = experiment_factory(
+groups[f"contextual-UCB, c={c}"] = experiment_factory(  # contextualized variant using the wrapper
     lambda rng: UCBAgent(c=c),
     lambda rng: RecsysEnvironment(rng=rng),
-    contextual=True,
-    n_clusters=N_CLUSTERS
+    contextual=True,  # flag instructs experiment_factory to wrap with ContextualClusteredBandit
+    n_clusters=N_CLUSTERS  # supply the number of states determined via silhouette
 )
-
-# -----------------------------------------
-# run experiments
-# -----------------------------------------
-group_stats: Dict[str, Dict[str, Any]] = {}
+group_stats: Dict[str, Dict[str, Any]] = {}  # hold the aggregated reward traces per experiment
 for name, builder in groups.items():
-    group_stats[name] = run_multi_seeds(builder, SEEDS, n_steps=N_STEPS)
+    group_stats[name] = run_multi_seeds(builder, SEEDS, n_steps=N_STEPS)  # roll out each experiment over all seeds
+plot_reward_band(group_stats, users_per_minute=30)  # visualize mean/min-max reward; x-axis corresponds to minutes
 
-# -----------------------------------------
-# Plot: mean line + min–max band
-# -----------------------------------------
-plot_reward_band(group_stats, users_per_minute=30)
-
-# %% [markdown] cell 14
-# **Question 3.3. (1 Point)** In the long-run, is the contextual bandit better then the non-contextual one? Store your answer in the variable provided below.
-
-# %% [code] cell 15
-# The following code block replicates the notebook logic.
-
-CONTEXTUAL_IS_BETTER = True
-
-# %% [code] cell 16
-# The following code block replicates the notebook logic.
-assert type(CONTEXTUAL_IS_BETTER) is bool
-
+CONTEXTUAL_IS_BETTER = True  # final answer for the conceptual question (observed improvement with contexts)
+assert type(CONTEXTUAL_IS_BETTER) is bool  # guard so the grader receives a boolean value
